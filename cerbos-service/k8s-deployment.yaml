@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cerbos-spiffe-service
+  namespace: sandbox
+  labels:
+    app: cerbos-spiffe-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cerbos-spiffe-service
+  template:
+    metadata:
+      labels:
+        app: cerbos-spiffe-service
+    spec:
+      serviceAccountName: example-svc
+      containers:
+        - name: app
+          image: cerbos-spiffe-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: spiffe-csi
+              mountPath: /var/run/secrets/spiffe.io
+              readOnly: true
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: CERBOS_HOST
+              value: "cerbos-service:3593"
+      volumes:
+        - name: spiffe-csi
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "1000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cerbos-spiffe-service
+  namespace: sandbox
+spec:
+  selector:
+    app: cerbos-spiffe-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP

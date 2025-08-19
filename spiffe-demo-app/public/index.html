@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPIFFE Identity Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .identity-card {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .identity-field {
+            margin: 15px 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .field-label {
+            font-weight: bold;
+            color: #f0f0f0;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        .field-value {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            border-left: 4px solid #4CAF50;
+        }
+        .error {
+            background: rgba(255, 0, 0, 0.2);
+            border-left-color: #f44336;
+            color: #ffcdd2;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-green {
+            background-color: #4CAF50;
+        }
+        .status-red {
+            background-color: #f44336;
+        }
+        .refresh-btn {
+            background: rgba(76, 175, 80, 0.8);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 20px auto;
+            display: block;
+            transition: all 0.3s ease;
+        }
+        .refresh-btn:hover {
+            background: rgba(76, 175, 80, 1);
+            transform: translateY(-2px);
+        }
+        .loading {
+            text-align: center;
+            font-style: italic;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 SPIFFE Identity Demo</h1>
+        
+        <div id="loading" class="loading">Loading SPIFFE identity...</div>
+        
+        <div id="identity-info" style="display: none;">
+            <div class="identity-card">
+                <div class="identity-field">
+                    <div class="field-label">
+                        <span class="status-indicator" id="cert-status"></span>
+                        Certificate Status
+                    </div>
+                    <div class="field-value" id="cert-status-text"></div>
+                </div>
+                
+                <div class="identity-field">
+                    <div class="field-label">SPIFFE ID</div>
+                    <div class="field-value" id="spiffe-id"></div>
+                </div>
+                
+                <div class="identity-field">
+                    <div class="field-label">Issuer</div>
+                    <div class="field-value" id="issuer"></div>
+                </div>
+                
+                <div class="identity-field">
+                    <div class="field-label">Subject</div>
+                    <div class="field-value" id="subject"></div>
+                </div>
+                
+                <div class="identity-field">
+                    <div class="field-label">Serial Number</div>
+                    <div class="field-value" id="serial"></div>
+                </div>
+                
+                <div class="identity-field">
+                    <div class="field-label">Validity</div>
+                    <div class="field-value" id="validity"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="error-info" style="display: none;">
+            <div class="identity-card">
+                <div class="identity-field">
+                    <div class="field-label">Error</div>
+                    <div class="field-value error" id="error-message"></div>
+                </div>
+            </div>
+        </div>
+        
+        <button class="refresh-btn" onclick="loadIdentity()">🔄 Refresh Identity</button>
+    </div>
+
+    <script>
+        async function loadIdentity() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('identity-info').style.display = 'none';
+            document.getElementById('error-info').style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/identity');
+                const data = await response.json();
+                
+                document.getElementById('loading').style.display = 'none';
+                
+                if (data.error) {
+                    document.getElementById('error-info').style.display = 'block';
+                    document.getElementById('error-message').textContent = data.error;
+                } else {
+                    document.getElementById('identity-info').style.display = 'block';
+                    
+                    // Update certificate status
+                    const certStatus = document.getElementById('cert-status');
+                    const certStatusText = document.getElementById('cert-status-text');
+                    if (data.certificatePresent && data.keyPresent) {
+                        certStatus.className = 'status-indicator status-green';
+                        certStatusText.textContent = '✅ Certificate and private key are present';
+                    } else {
+                        certStatus.className = 'status-indicator status-red';
+                        certStatusText.textContent = '❌ Certificate or private key missing';
+                    }
+                    
+                    // Update identity fields
+                    document.getElementById('spiffe-id').textContent = data.spiffeId || 'Not available';
+                    document.getElementById('issuer').textContent = data.issuer || 'Not available';
+                    document.getElementById('subject').textContent = data.subject || 'Not available';
+                    document.getElementById('serial').textContent = data.serial || 'Not available';
+                    document.getElementById('validity').textContent = data.validity ? data.validity.join('\n') : 'Not available';
+                }
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error-info').style.display = 'block';
+                document.getElementById('error-message').textContent = 'Failed to fetch identity: ' + error.message;
+            }
+        }
+        
+        // Load identity on page load
+        loadIdentity();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadIdentity, 30000);
+    </script>
+</body>
+</html>

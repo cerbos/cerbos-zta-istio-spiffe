@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cerbos SPIFFE Authorization Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #1565c0;
+            margin-bottom: 30px;
+        }
+        .user-info {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .documents-grid {
+            display: grid;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .document-card {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .document-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #1565c0;
+        }
+        .document-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+        .permissions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .permission-badge {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .permission-allowed {
+            background: #c8e6c9;
+            color: #2e7d32;
+        }
+        .permission-denied {
+            background: #ffcdd2;
+            color: #c62828;
+        }
+        .test-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        .test-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .test-controls select, .test-controls button {
+            padding: 8px 15px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .test-controls button {
+            background: #1565c0;
+            color: white;
+            cursor: pointer;
+        }
+        .test-controls button:hover {
+            background: #0d47a1;
+        }
+        .test-result {
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #1565c0;
+            margin-top: 15px;
+        }
+        .allowed {
+            border-left-color: #4caf50;
+        }
+        .denied {
+            border-left-color: #f44336;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Cerbos SPIFFE Authorization Demo</h1>
+        
+        <div class="user-info">
+            <h3>Current Identity</h3>
+            <div id="user-info">Loading...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>🧪 Test Authorization</h3>
+            <div class="test-controls">
+                <select id="document-select">
+                    <option value="">Select a document...</option>
+                </select>
+                <select id="action-select">
+                    <option value="read">Read</option>
+                    <option value="write">Write</option>
+                    <option value="delete">Delete</option>
+                    <option value="share">Share</option>
+                </select>
+                <button onclick="testPermission()">🔍 Check Permission</button>
+            </div>
+            <div id="test-result"></div>
+        </div>
+        
+        <div class="documents-section">
+            <h3>📁 Available Documents</h3>
+            <div id="documents-loading" class="loading">Loading documents...</div>
+            <div id="documents-grid" class="documents-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentDocuments = [];
+        let currentUser = null;
+
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/whoami');
+                currentUser = await response.json();
+                
+                document.getElementById('user-info').innerHTML = `
+                    <p><strong>SPIFFE ID:</strong> <code>${currentUser.spiffe_id || 'Not available'}</code></p>
+                    <p><strong>User ID:</strong> ${currentUser.user_id}</p>
+                    <p><strong>Department:</strong> ${currentUser.department}</p>
+                    ${currentUser.service_type ? `<p><strong>Service Type:</strong> ${currentUser.service_type}</p>` : ''}
+                `;
+            } catch (error) {
+                document.getElementById('user-info').innerHTML = `<p style="color: red;">Failed to load user info: ${error.message}</p>`;
+            }
+        }
+
+        async function loadDocuments() {
+            try {
+                const response = await fetch('/api/documents');
+                const data = await response.json();
+                currentDocuments = data.documents;
+                
+                document.getElementById('documents-loading').style.display = 'none';
+                
+                if (currentDocuments.length === 0) {
+                    document.getElementById('documents-grid').innerHTML = '<p>No documents accessible with current identity.</p>';
+                    return;
+                }
+                
+                const documentsHtml = currentDocuments.map(doc => `
+                    <div class="document-card">
+                        <div class="document-title">${doc.title}</div>
+                        <div class="document-meta">
+                            ID: ${doc.id} | Owner: ${doc.owner} | Department: ${doc.department}
+                            ${doc.confidential_tags.length > 0 ? `<br>Tags: ${doc.confidential_tags.join(', ')}` : ''}
+                        </div>
+                        <div class="permissions">
+                            <span class="permission-badge ${doc.permissions.read ? 'permission-allowed' : 'permission-denied'}">
+                                ${doc.permissions.read ? '✅' : '❌'} Read
+                            </span>
+                            <span class="permission-badge ${doc.permissions.write ? 'permission-allowed' : 'permission-denied'}">
+                                ${doc.permissions.write ? '✅' : '❌'} Write
+                            </span>
+                            <span class="permission-badge ${doc.permissions.delete ? 'permission-allowed' : 'permission-denied'}">
+                                ${doc.permissions.delete ? '✅' : '❌'} Delete
+                            </span>
+                            <span class="permission-badge ${doc.permissions.share ? 'permission-allowed' : 'permission-denied'}">
+                                ${doc.permissions.share ? '✅' : '❌'} Share
+                            </span>
+                        </div>
+                    </div>
+                `).join('');
+                
+                document.getElementById('documents-grid').innerHTML = documentsHtml;
+                
+                // Populate document selector
+                const docSelect = document.getElementById('document-select');
+                docSelect.innerHTML = '<option value="">Select a document...</option>' + 
+                    currentDocuments.map(doc => `<option value="${doc.id}">${doc.title}</option>`).join('');
+                    
+            } catch (error) {
+                document.getElementById('documents-loading').innerHTML = `<p style="color: red;">Failed to load documents: ${error.message}</p>`;
+            }
+        }
+
+        async function testPermission() {
+            const docId = document.getElementById('document-select').value;
+            const action = document.getElementById('action-select').value;
+            const resultDiv = document.getElementById('test-result');
+            
+            if (!docId) {
+                resultDiv.innerHTML = '<p style="color: orange;">Please select a document first.</p>';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/check-permission', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: action,
+                        resourceId: docId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="test-result ${result.allowed ? 'allowed' : 'denied'}">
+                        <h4>${result.allowed ? '✅ ALLOWED' : '❌ DENIED'}</h4>
+                        <p><strong>Action:</strong> ${result.action}</p>
+                        <p><strong>Resource:</strong> ${result.resource.title} (${result.resource.id})</p>
+                        <p><strong>Decision:</strong> ${result.decision}</p>
+                        <p><strong>Principal SPIFFE ID:</strong> <code>${result.principal.spiffe_id || 'Not available'}</code></p>
+                        <details>
+                            <summary>Full Response</summary>
+                            <pre>${JSON.stringify(result, null, 2)}</pre>
+                        </details>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="test-result denied"><h4>❌ ERROR</h4><p>${error.message}</p></div>`;
+            }
+        }
+        
+        // Load data on page load
+        Promise.all([loadUserInfo(), loadDocuments()]);
+        
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            Promise.all([loadUserInfo(), loadDocuments()]);
+        }, 30000);
+    </script>
+</body>
+</html>

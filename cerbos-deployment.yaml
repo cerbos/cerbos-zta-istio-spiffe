@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cerbos
+  namespace: sandbox
+  labels:
+    app: cerbos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cerbos
+  template:
+    metadata:
+      labels:
+        app: cerbos
+    spec:
+      containers:
+        - name: cerbos
+          image: ghcr.io/cerbos/cerbos:latest
+          args:
+            - "server"
+            - "--config=/config/cerbos-config.yaml"
+          ports:
+            - containerPort: 3592
+              name: http
+            - containerPort: 3593
+              name: grpc
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: policies
+              mountPath: /policies
+          livenessProbe:
+            httpGet:
+              path: /_cerbos/health
+              port: 3592
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /_cerbos/health
+              port: 3592
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: cerbos-config
+        - name: policies
+          configMap:
+            name: cerbos-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cerbos-service
+  namespace: sandbox
+spec:
+  selector:
+    app: cerbos
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3592
+      targetPort: 3592
+    - name: grpc
+      protocol: TCP
+      port: 3593
+      targetPort: 3593
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cerbos-config
+  namespace: sandbox
+data:
+  cerbos-config.yaml: |
+    server:
+      httpListenAddr: ":3592"
+      grpcListenAddr: ":3593"
+    storage:
+      driver: "disk"
+      disk:
+        directory: "/policies"
+        watchForChanges: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cerbos-policies
+  namespace: sandbox
+data:
+  document_policy.yaml: |
+    ---
+    apiVersion: api.cerbos.dev/v1
+    resourcePolicy:
+      version: "default"
+      resource: "document"
+      rules:
+        - actions: ['*']
+          effect: EFFECT_ALLOW
+          roles:
+            - admin
+          
+        - actions: ['read']
+          effect: EFFECT_ALLOW
+          roles:
+            - user
+          condition:
+            match:
+              expr: has(P.attr.spiffe_id) && P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/")
+              
+        - actions: ['write', 'delete']
+          effect: EFFECT_ALLOW
+          roles:
+            - user
+          condition:
+            match:
+              expr: |
+                has(P.attr.spiffe_id) && 
+                P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/") &&
+                (R.attr.owner == P.attr.user_id || R.attr.department == P.attr.department)
+                
+        - actions: ['share']
+          effect: EFFECT_ALLOW
+          roles:
+            - user
+          condition:
+            match:
+              expr: |
+                has(P.attr.spiffe_id) && 
+                P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/") &&
+                R.attr.owner == P.attr.user_id &&
+                size(R.attr.confidential_tags) == 0
