@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cerbos-spiffe-service
+  name: spiffe-demo-backend
   namespace: sandbox
   labels:
-    app: cerbos-spiffe-service
+    app: spiffe-demo-backend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: cerbos-spiffe-service
+      app: spiffe-demo-backend
   template:
     metadata:
       labels:
-        app: cerbos-spiffe-service
+        app: spiffe-demo-backend
     spec:
-      serviceAccountName: example-svc
+      serviceAccountName: spiffe-demo-backend
       containers:
-        - name: app
-          image: cerbos-spiffe-service:latest
+        - name: backend
+          image: spiffe-demo-backend:latest
           imagePullPolicy: Never
           ports:
-            - containerPort: 3000
+            - containerPort: 8080
           volumeMounts:
             - name: spiffe-csi
               mountPath: /var/run/secrets/spiffe.io
@@ -42,13 +42,33 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: cerbos-spiffe-service
+  name: spiffe-demo-backend-service
   namespace: sandbox
 spec:
   selector:
-    app: cerbos-spiffe-service
+    app: spiffe-demo-backend
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 3000
+      targetPort: 8080
   type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spiffe-demo-backend-ingress
+  namespace: sandbox
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: spiffe-backend.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spiffe-demo-backend-service
+                port:
+                  number: 80

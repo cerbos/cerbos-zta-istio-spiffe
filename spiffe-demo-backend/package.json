@@ -1,7 +1,7 @@
 {
-  "name": "cerbos-spiffe-demo",
+  "name": "spiffe-demo-backend",
   "version": "1.0.0",
-  "description": "Demo service showing Cerbos authorization with SPIFFE identities",
+  "description": "Demo backend REST API with SPIFFE identity and Cerbos authorization",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",

@@ -85,6 +85,14 @@ data:
       disk:
         directory: "/policies"
         watchForChanges: false
+    audit:
+      enabled: true
+      accessLogsEnabled: true
+      decisionLogsEnabled: true
+      backend: file
+      file:
+        path: stdout
+
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -92,45 +100,21 @@ metadata:
   name: cerbos-policies
   namespace: sandbox
 data:
-  document_policy.yaml: |
+  resource_policy.yaml: |
     ---
     apiVersion: api.cerbos.dev/v1
     resourcePolicy:
       version: "default"
-      resource: "document"
+      resource: "resource"
       rules:
-        - actions: ['*']
+        # Allow all operations for backend services from any trust domain
+        - actions: ['read', 'create', 'delete']
           effect: EFFECT_ALLOW
           roles:
-            - admin
-          
-        - actions: ['read']
-          effect: EFFECT_ALLOW
-          roles:
-            - user
+            - api
           condition:
             match:
-              expr: has(P.attr.spiffe_id) && P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/")
-              
-        - actions: ['write', 'delete']
-          effect: EFFECT_ALLOW
-          roles:
-            - user
-          condition:
-            match:
-              expr: |
-                has(P.attr.spiffe_id) && 
-                P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/") &&
-                (R.attr.owner == P.attr.user_id || R.attr.department == P.attr.department)
-                
-        - actions: ['share']
-          effect: EFFECT_ALLOW
-          roles:
-            - user
-          condition:
-            match:
-              expr: |
-                has(P.attr.spiffe_id) && 
-                P.attr.spiffe_id.startsWith("spiffe://demo.cerbos.io/") &&
-                R.attr.owner == P.attr.user_id &&
-                size(R.attr.confidential_tags) == 0
+              all:
+                of:
+                  - expr: spiffeMatchTrustDomain(spiffeTrustDomain("spiffe://demo.cerbos.io")).matchesID(spiffeID(P.id))
+                  - expr: spiffeID(P.id).path().contains("/ns/sandbox")

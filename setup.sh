@@ -153,7 +153,7 @@ setup_sandbox() {
     
     # Apply RBAC for certificate requests
     log_info "Applying RBAC for certificate requests..."
-    kubectl apply -f cert-manager-rbac.yaml
+    kubectl apply -f cluster-rbac.yaml
     
     log_success "Sandbox namespace created"
 }
@@ -182,16 +182,16 @@ deploy_demo_apps() {
     log_info "Building SPIFFE demo app..."
     (cd spiffe-demo-app && docker build -t spiffe-demo-app:latest .)
     
-    # Build Cerbos service
-    log_info "Building Cerbos service..."
-    (cd cerbos-service && docker build -t cerbos-spiffe-service:latest .)
+    # Build SPIFFE demo backend
+    log_info "Building SPIFFE demo backend..."
+    (cd spiffe-demo-backend && docker build -t spiffe-demo-backend:latest .)
     
     # Deploy applications
     log_info "Deploying SPIFFE demo app..."
     kubectl apply -f spiffe-demo-app/k8s-deployment.yaml
     
-    log_info "Deploying Cerbos service..."
-    kubectl apply -f cerbos-service/k8s-deployment.yaml
+    log_info "Deploying SPIFFE demo backend..."
+    kubectl apply -f spiffe-demo-backend/k8s-deployment.yaml
     
     log_success "Demo applications deployment completed"
 }
@@ -208,12 +208,6 @@ approve_certificates() {
         log_info "Approving cert-manager certificate request: $cr"
         cmctl approve -n cert-manager $cr || log_warning "Failed to approve $cr (may already be approved)"
     done
-
-        # Approve all certificate requests
-    for cr in $(kubectl get cr -n sandbox -o jsonpath='{.items[*].metadata.name}'); do
-        log_info "Approving sandbox certificate request: $cr"
-        cmctl approve -n sandbox $cr || log_warning "Failed to approve $cr (may already be approved)"
-    done
     
     log_success "Certificate approval completed"
 }
@@ -223,7 +217,7 @@ wait_for_deployments() {
     log_info "Waiting for deployments to be ready..."
     
     kubectl wait --for=condition=available deployment/spiffe-demo-app -n sandbox --timeout=300s
-    kubectl wait --for=condition=available deployment/cerbos-spiffe-service -n sandbox --timeout=300s
+    kubectl wait --for=condition=available deployment/spiffe-demo-backend -n sandbox --timeout=300s
     
     log_success "All deployments are ready"
 }
@@ -239,20 +233,17 @@ setup_port_forwarding() {
     kubectl port-forward -n sandbox svc/spiffe-demo-app-service 8080:80 &
     SPIFFE_PF_PID=$!
     
-    # Port forward for Cerbos service
-    kubectl port-forward -n sandbox svc/cerbos-spiffe-service 3000:80 &
-    CERBOS_PF_PID=$!
-    
-    # Port forward for Cerbos API
-    kubectl port-forward -n sandbox svc/cerbos-service 3593:3593 &
-    CERBOS_API_PF_PID=$!
+    # Port forward for SPIFFE demo backend
+    kubectl port-forward -n sandbox svc/spiffe-demo-backend-service 8081:80 &
+    BACKEND_PF_PID=$!
     
     # Save PIDs to a file for cleanup
-    echo "$SPIFFE_PF_PID $CERBOS_PF_PID $CERBOS_API_PF_PID" > .port-forward-pids
+    echo "$SPIFFE_PF_PID" > .port-forward-pids
+    echo "$BACKEND_PF_PID" >> .port-forward-pids
     
     log_success "Port forwarding setup completed"
     log_info "SPIFFE Demo App: http://localhost:8080"
-    log_info "Cerbos Service: http://localhost:3000"
+    log_info "SPIFFE Demo Backend: http://localhost:8081"
 }
 
 # Display final information
@@ -262,12 +253,12 @@ display_final_info() {
     echo ""
     echo "Access your applications:"
     echo "  🔐 SPIFFE Demo App: http://localhost:8080"
-    echo "  🛡️  Cerbos Service: http://localhost:3000"
+    echo "  🔧 SPIFFE Demo Backend: http://localhost:8081"
     echo ""
     echo "Useful commands:"
     echo "  kubectl get pods -n sandbox"
     echo "  kubectl logs -n sandbox deployment/spiffe-demo-app"
-    echo "  kubectl logs -n sandbox deployment/cerbos-spiffe-service"
+    echo "  kubectl logs -n sandbox deployment/spiffe-demo-backend"
     echo ""
     echo "To view SPIFFE identity of the sample app:"
     echo '  kubectl exec -n sandbox $(kubectl get pod -n sandbox -l app=spiffe-demo-app -o jsonpath='"'"'{.items[0].metadata.name}'"'"') -- cat /var/run/secrets/spiffe.io/tls.crt | openssl x509 --noout --text | grep "URI:"'

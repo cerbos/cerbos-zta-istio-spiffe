@@ -1,67 +1,42 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
 
 const app = express();
 const port = 8080;
 
+const BACKEND_SERVICE_URL = process.env.BACKEND_SERVICE_URL || 'http://spiffe-demo-backend-service:80';
+
+app.use(express.json());
+
 app.use(express.static('public'));
 
-function getSPIFFEIdentity() {
+app.get('/api/test-authorization', async (req, res) => {
     try {
-        const certPath = '/var/run/secrets/spiffe.io/tls.crt';
-        const keyPath = '/var/run/secrets/spiffe.io/tls.key';
+        console.log(`Testing authorization by calling ${BACKEND_SERVICE_URL}/api/resources`);
         
-        if (!fs.existsSync(certPath)) {
-            return { error: 'SPIFFE certificate not found' };
-        }
-
-        const certPem = fs.readFileSync(certPath, 'utf8');
-        const cert = new crypto.X509Certificate(certPem);
-        
-        // Extract issuer information
-        const issuer = `Issuer: ${cert.issuer}`;
-
-        // Extract URI (SPIFFE ID) from Subject Alternative Names
-        let spiffeId = 'URI: Not found';
-        const subjectAltName = cert.subjectAltName;
-        if (subjectAltName) {
-            const uriMatch = subjectAltName.match(/URI:([^,]+)/);
-            if (uriMatch) {
-                spiffeId = `URI: ${uriMatch[1].trim()}`;
+        const response = await fetch(`${BACKEND_SERVICE_URL}/api/resources`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
             }
-        }
-
-        // Extract subject
-        const subject = `Subject: ${cert.subject}`;
-
-        // Extract validity dates
-        const validity = [
-            `notBefore=${cert.validFrom}`,
-            `notAfter=${cert.validTo}`
-        ];
-
-        // Get certificate serial number
-        const serial = `serial=${cert.serialNumber}`;
-
-        return {
-            issuer,
-            spiffeId,
-            subject,
-            validity,
-            serial,
-            certificatePresent: true,
-            keyPresent: fs.existsSync(keyPath)
-        };
+        });
+        
+        const responseData = await response.json();
+        
+        res.json({
+            success: response.ok,
+            status: response.status,
+            statusText: response.statusText,
+            data: responseData,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        return { error: error.message };
+        console.error('Error calling backend service:', error);
+        res.json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
     }
-}
-
-app.get('/api/identity', (req, res) => {
-    const identity = getSPIFFEIdentity();
-    res.json(identity);
 });
 
 app.get('/health', (req, res) => {
@@ -69,5 +44,6 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`SPIFFE Demo App listening at http://localhost:${port}`);
+    console.log(`SPIFFE Cerbos Authorization Demo listening at http://localhost:${port}`);
+    console.log(`Backend service URL: ${BACKEND_SERVICE_URL}`);
 });

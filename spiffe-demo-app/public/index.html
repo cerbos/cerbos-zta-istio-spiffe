@@ -3,200 +3,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SPIFFE Identity Demo</title>
+    <title>SPIFFE Cerbos Authorization Demo</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1200px;
+            font-family: 'Courier New', monospace;
+            max-width: 900px;
             margin: 0 auto;
             padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: white;
+            background: #1a1a1a;
+            color: #00ff00;
         }
         .container {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 30px;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        .identity-card {
-            background: rgba(255, 255, 255, 0.2);
+            background: #000;
+            border: 2px solid #00ff00;
             border-radius: 10px;
             padding: 20px;
             margin: 20px 0;
-            border: 1px solid rgba(255, 255, 255, 0.3);
         }
-        .identity-field {
-            margin: 15px 0;
-            display: flex;
-            flex-direction: column;
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #00ff00;
         }
-        .field-label {
-            font-weight: bold;
-            color: #f0f0f0;
-            margin-bottom: 5px;
-            font-size: 1.1em;
-        }
-        .field-value {
-            background: rgba(0, 0, 0, 0.2);
+        .status {
+            margin: 10px 0;
             padding: 10px;
             border-radius: 5px;
-            font-family: 'Courier New', monospace;
-            word-break: break-all;
-            border-left: 4px solid #4CAF50;
         }
-        .error {
-            background: rgba(255, 0, 0, 0.2);
-            border-left-color: #f44336;
-            color: #ffcdd2;
+        .allowed {
+            background: rgba(0, 255, 0, 0.1);
+            border-left: 4px solid #00ff00;
         }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
+        .denied {
+            background: rgba(255, 0, 0, 0.1);
+            border-left: 4px solid #ff0000;
+            color: #ff0000;
         }
-        .status-green {
-            background-color: #4CAF50;
+        .log-entry {
+            font-size: 12px;
+            margin: 5px 0;
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.05);
         }
-        .status-red {
-            background-color: #f44336;
+        .timestamp {
+            color: #888;
         }
-        .refresh-btn {
-            background: rgba(76, 175, 80, 0.8);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 16px;
-            margin: 20px auto;
-            display: block;
-            transition: all 0.3s ease;
-        }
-        .refresh-btn:hover {
-            background: rgba(76, 175, 80, 1);
-            transform: translateY(-2px);
-        }
-        .loading {
+        .control-panel {
             text-align: center;
-            font-style: italic;
-            opacity: 0.8;
+            margin: 20px 0;
+        }
+        button {
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background: #444;
+        }
+        #log-container {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #333;
+            padding: 10px;
+            background: #111;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔐 SPIFFE Identity Demo</h1>
+        <h1>🔐 SPIFFE + Cerbos Authorization Demo</h1>
         
-        <div id="loading" class="loading">Loading SPIFFE identity...</div>
-        
-        <div id="identity-info" style="display: none;">
-            <div class="identity-card">
-                <div class="identity-field">
-                    <div class="field-label">
-                        <span class="status-indicator" id="cert-status"></span>
-                        Certificate Status
-                    </div>
-                    <div class="field-value" id="cert-status-text"></div>
-                </div>
-                
-                <div class="identity-field">
-                    <div class="field-label">SPIFFE ID</div>
-                    <div class="field-value" id="spiffe-id"></div>
-                </div>
-                
-                <div class="identity-field">
-                    <div class="field-label">Issuer</div>
-                    <div class="field-value" id="issuer"></div>
-                </div>
-                
-                <div class="identity-field">
-                    <div class="field-label">Subject</div>
-                    <div class="field-value" id="subject"></div>
-                </div>
-                
-                <div class="identity-field">
-                    <div class="field-label">Serial Number</div>
-                    <div class="field-value" id="serial"></div>
-                </div>
-                
-                <div class="identity-field">
-                    <div class="field-label">Validity</div>
-                    <div class="field-value" id="validity"></div>
-                </div>
-            </div>
+        <div class="status" id="current-status">
+            <strong>Status:</strong> <span id="status-text">Starting...</span>
         </div>
         
-        <div id="error-info" style="display: none;">
-            <div class="identity-card">
-                <div class="identity-field">
-                    <div class="field-label">Error</div>
-                    <div class="field-value error" id="error-message"></div>
-                </div>
-            </div>
+        <div class="control-panel">
+            <button onclick="togglePolling()">Start/Stop Polling</button>
+            <button onclick="clearLog()">Clear Log</button>
+            <button onclick="testOnce()">Test Once</button>
         </div>
         
-        <button class="refresh-btn" onclick="loadIdentity()">🔄 Refresh Identity</button>
+        <div class="container">
+            <h3>Authorization Log</h3>
+            <div id="log-container"></div>
+        </div>
     </div>
 
     <script>
-        async function loadIdentity() {
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('identity-info').style.display = 'none';
-            document.getElementById('error-info').style.display = 'none';
-            
+        let pollingInterval = null;
+        let isPolling = false;
+        
+        function addLogEntry(message, isAllowed) {
+            const logContainer = document.getElementById('log-container');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${isAllowed ? 'allowed' : 'denied'}`;
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function updateStatus(message, isAllowed) {
+            const statusEl = document.getElementById('current-status');
+            const statusText = document.getElementById('status-text');
+            statusText.textContent = message;
+            statusEl.className = `status ${isAllowed ? 'allowed' : 'denied'}`;
+        }
+        
+        async function testBackendAuthorization() {
             try {
-                const response = await fetch('/api/identity');
-                const data = await response.json();
+                const response = await fetch('/api/test-authorization', {
+                    method: 'GET'
+                });
                 
-                document.getElementById('loading').style.display = 'none';
+                const result = await response.json();
                 
-                if (data.error) {
-                    document.getElementById('error-info').style.display = 'block';
-                    document.getElementById('error-message').textContent = data.error;
+                if (result.success && result.status === 200) {
+                    const spiffeId = result.data.spiffeId || 'unknown';
+                    const message = `✅ ALLOWED - Backend authorized request (SPIFFE: ${spiffeId})`;
+                    addLogEntry(message, true);
+                    updateStatus('Authorization: ALLOWED', true);
+                    return true;
+                } else if (result.status === 403) {
+                    const errorMsg = result.data?.error || 'Access denied';
+                    const message = `❌ DENIED - Backend rejected request (${errorMsg})`;
+                    addLogEntry(message, false);
+                    updateStatus('Authorization: DENIED', false);
+                    return false;
+                } else if (result.error) {
+                    const message = `💥 ERROR - ${result.error}`;
+                    addLogEntry(message, false);
+                    updateStatus('Network/Service Error', false);
+                    return false;
                 } else {
-                    document.getElementById('identity-info').style.display = 'block';
-                    
-                    // Update certificate status
-                    const certStatus = document.getElementById('cert-status');
-                    const certStatusText = document.getElementById('cert-status-text');
-                    if (data.certificatePresent && data.keyPresent) {
-                        certStatus.className = 'status-indicator status-green';
-                        certStatusText.textContent = '✅ Certificate and private key are present';
-                    } else {
-                        certStatus.className = 'status-indicator status-red';
-                        certStatusText.textContent = '❌ Certificate or private key missing';
-                    }
-                    
-                    // Update identity fields
-                    document.getElementById('spiffe-id').textContent = data.spiffeId || 'Not available';
-                    document.getElementById('issuer').textContent = data.issuer || 'Not available';
-                    document.getElementById('subject').textContent = data.subject || 'Not available';
-                    document.getElementById('serial').textContent = data.serial || 'Not available';
-                    document.getElementById('validity').textContent = data.validity ? data.validity.join('\n') : 'Not available';
+                    const message = `⚠️ ERROR - HTTP ${result.status}: ${result.statusText}`;
+                    addLogEntry(message, false);
+                    updateStatus(`Error: HTTP ${result.status}`, false);
+                    return false;
                 }
             } catch (error) {
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('error-info').style.display = 'block';
-                document.getElementById('error-message').textContent = 'Failed to fetch identity: ' + error.message;
+                const message = `💥 NETWORK ERROR - ${error.message}`;
+                addLogEntry(message, false);
+                updateStatus('Network Error', false);
+                return false;
             }
         }
         
-        // Load identity on page load
-        loadIdentity();
+        function togglePolling() {
+            if (isPolling) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                isPolling = false;
+                addLogEntry('🛑 Polling stopped', true);
+                updateStatus('Polling stopped', true);
+            } else {
+                pollingInterval = setInterval(testBackendAuthorization, 3000);
+                isPolling = true;
+                addLogEntry('🚀 Polling started (every 3 seconds)', true);
+                updateStatus('Polling active', true);
+                // Test immediately
+                testBackendAuthorization();
+            }
+        }
         
-        // Auto-refresh every 30 seconds
-        setInterval(loadIdentity, 30000);
+        function clearLog() {
+            document.getElementById('log-container').innerHTML = '';
+            addLogEntry('📋 Log cleared', true);
+        }
+        
+        function testOnce() {
+            addLogEntry('🔍 Manual test triggered', true);
+            testBackendAuthorization();
+        }
+        
+        // Initialize
+        addLogEntry('🔧 SPIFFE Cerbos Authorization Demo initialized', true);
+        addLogEntry('💡 Click "Start/Stop Polling" to begin testing authorization', true);
+        addLogEntry('🎯 Demo: Change Cerbos policies to see requests succeed or fail', true);
+        updateStatus('Ready - Click Start/Stop Polling to begin', true);
     </script>
 </body>
 </html>

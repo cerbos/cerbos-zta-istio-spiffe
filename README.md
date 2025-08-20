@@ -1,80 +1,90 @@
-Docs https://cert-manager.io/docs/usage/csi-driver-spiffe/
+# SPIFFE + Cerbos Authorization Demo
 
-Setup the infrastructure
+This project demonstrates how to use SPIFFE identities with Cerbos for fine-grained authorization in a Kubernetes environment.
 
-```
-minikube -p venafi start
+## Overview
 
+The demo consists of:
 
-kubectl create ns cert-manager
-helm repo add jetstack https://charts.jetstack.io --force-update
-helm install \
- cert-manager jetstack/cert-manager \
- --namespace cert-manager \
- --create-namespace \
- --version v1.18.2 \
- --set crds.enabled=true
+1. **SPIFFE Demo App** - A web UI that displays the current SPIFFE identity and certificate information
+2. **Cerbos Authorization Service** - A service that makes authorization decisions based on SPIFFE identities
+3. **Cerbos Policies** - Policy definitions that control access to resources based on SPIFFE ID attributes
 
-helm upgrade cert-manager-csi-driver jetstack/cert-manager-csi-driver \
- --install \
- --namespace cert-manager \
- --wait
-
-existing_cert_manager_version=$(helm get metadata -n cert-manager cert-manager | grep '^VERSION' | awk '{ print $2 }')
-helm upgrade cert-manager jetstack/cert-manager \
- --reuse-values \
- --namespace cert-manager \
- --version $existing_cert_manager_version \
- --set disableAutoApproval=true
-
-kubectl create configmap -n cert-manager spiffe-issuer \
- --from-literal=issuer-name=csi-driver-spiffe-ca \
- --from-literal=issuer-kind=ClusterIssuer \
- --from-literal=issuer-group=cert-manager.io
-
-helm upgrade -i -n cert-manager cert-manager-csi-driver-spiffe jetstack/cert-manager-csi-driver-spiffe --wait \
- --set "app.logLevel=1" \
- --set "app.trustDomain=demo.cerbos.io" \
- --set "app.issuer.name=" \
- --set "app.issuer.kind=" \
- --set "app.issuer.group=" \
- --set "app.runtimeIssuanceConfigMap=spiffe-issuer"
-
-kubectl apply -f https://raw.githubusercontent.com/cert-manager/csi-driver-spiffe/ed646ccf28b1ecdf63f628bf16f1d350a9b850c1/deploy/example/clusterissuer.yaml
-```
-
-Deploy a sample app
+## Architecture
 
 ```
-kubectl apply -f https://raw.githubusercontent.com/cert-manager/csi-driver-spiffe/ed646ccf28b1ecdf63f628bf16f1d350a9b850c1/deploy/example/example-app.yaml
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│                 │    │                 │    │                 │
+│  SPIFFE Demo    │    │  Cerbos Service │    │     Cerbos      │
+│      App        │    │                 │    │    Engine       │
+│                 │    │                 │    │                 │
+│  - Shows SPIFFE │    │  - Extracts     │    │  - Evaluates    │
+│    identity     │    │    SPIFFE ID    │    │    policies     │
+│  - Certificate  │    │  - Makes authz  │    │  - Returns      │
+│    details      │    │    calls        │    │    decisions    │
+│                 │    │                 │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │                 │
+                    │ cert-manager    │
+                    │  SPIFFE CSI     │
+                    │    Driver       │
+                    │                 │
+                    │  - Issues       │
+                    │    certificates │
+                    │  - Mounts       │
+                    │    SPIFFE IDs   │
+                    │                 │
+                    └─────────────────┘
 ```
 
-Approve the sample apps certificate request
+## Quick Start
 
+### Prerequisites
+
+- Docker
+- minikube
+- kubectl
+- helm
+- cmctl (will be installed automatically if missing)
+
+### Setup
+
+1. **Run the automated setup:**
+   ```bash
+   ./setup.sh
+   ```
+
+   This script will:
+   - Start minikube
+   - Install cert-manager and SPIFFE CSI driver
+   - Deploy Cerbos with policies
+   - Build and deploy the demo applications
+   - Set up port forwarding
+
+2. **Access the applications:**
+   - SPIFFE Demo App: http://localhost:8080
+   - Cerbos Authorization Service: http://localhost:3000
+
+## Cleanup
+
+To clean up the demo environment:
+
+```bash
+# Stop applications and port forwarding (keeps minikube running)
+./cleanup.sh
+
+# Completely remove minikube cluster
+./cleanup.sh --delete-minikube
 ```
-cmctl approve -n cert-manager $(kubectl get cr -n cert-manager -ojsonpath='{.items[0].metadata.name}')
-```
 
-Run the following to log out the mounted SPIFFE identity
+## Resources
 
-```
-kubectl exec -n sandbox \
- $(kubectl get pod -n sandbox -l app=my-csi-app -o jsonpath='{.items[0].metadata.name}') \
- -- \
- cat /var/run/secrets/spiffe.io/tls.crt | \
- openssl x509 --noout --text | \
- grep "Issuer:"
-
-kubectl exec -n sandbox \
- $(kubectl get pod -n sandbox -l app=my-csi-app -o jsonpath='{.items[0].metadata.name}') \
- -- \
- cat /var/run/secrets/spiffe.io/tls.crt | \
- openssl x509 --noout --text | \
- grep "URI:"
-```
-
-Todo:
-
-- Demo app which has a UI which shows the SPIFFE identity in a browser
-- Cerbos policy which gets pass the SPIFFE identity and makes an authorization decision for a service call
-- Automate the setup
+- [SPIFFE Documentation](https://spiffe.io/docs/)
+- [cert-manager SPIFFE CSI Driver](https://cert-manager.io/docs/usage/csi-driver-spiffe/)
+- [Cerbos Documentation](https://docs.cerbos.dev/)
+- [Kubernetes CSI Documentation](https://kubernetes-csi.github.io/docs/)
