@@ -6,23 +6,24 @@ This project demonstrates how to use SPIFFE identities with Cerbos for fine-grai
 
 The demo consists of:
 
-1. **SPIFFE Demo App** - A web UI that displays the current SPIFFE identity and certificate information
-2. **Cerbos Authorization Service** - A service that makes authorization decisions based on SPIFFE identities
-3. **Cerbos Policies** - Policy definitions that control access to resources based on SPIFFE ID attributes
+1. **SPIFFE Demo App** - A Node.js/Express web UI that displays the current SPIFFE identity and certificate information
+2. **SPIFFE Demo Backend** - A REST API service that demonstrates SPIFFE identity extraction and Cerbos authorization
+3. **Cerbos PDP** - Policy Decision Point that evaluates authorization policies based on SPIFFE identities
+4. **cert-manager SPIFFE CSI Driver** - Automatically issues and mounts SPIFFE certificates to pods
 
 ## Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │                 │    │                 │    │                 │
-│  SPIFFE Demo    │    │  Cerbos Service │    │     Cerbos      │
-│      App        │    │                 │    │    Engine       │
+│  SPIFFE Demo    │───▶│  SPIFFE Demo    │───▶│     Cerbos      │
+│      App        │    │    Backend      │    │      PDP        │
 │                 │    │                 │    │                 │
-│  - Shows SPIFFE │    │  - Extracts     │    │  - Evaluates    │
-│    identity     │    │    SPIFFE ID    │    │    policies     │
-│  - Certificate  │    │  - Makes authz  │    │  - Returns      │
-│    details      │    │    calls        │    │    decisions    │
-│                 │    │                 │    │                 │
+│  - Web UI       │    │  - REST API     │    │  - Evaluates    │
+│  - Shows cert   │    │  - Extracts     │    │    policies     │
+│    details      │    │    SPIFFE ID    │    │  - Returns      │
+│  - Makes API    │    │  - Calls Cerbos │    │    decisions    │
+│    calls        │    │    for authz    │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          │                       │                       │
@@ -34,11 +35,13 @@ The demo consists of:
                     │  SPIFFE CSI     │
                     │    Driver       │
                     │                 │
-                    │  - Issues       │
-                    │    certificates │
-                    │  - Mounts       │
-                    │    SPIFFE IDs   │
+                    │  Trust Domain:  │
+                    │  demo.cerbos.io │
                     │                 │
+                    │  Auto-mounts at:│
+                    │  /var/run/      │
+                    │  secrets/       │
+                    │  spiffe.io/     │
                     └─────────────────┘
 ```
 
@@ -54,21 +57,30 @@ The demo consists of:
 
 ### Setup
 
-1. **Run the automated setup:**
-   ```bash
-   ./setup.sh
-   ```
+```bash
+./setup.sh
+```
 
-   This script will:
-   - Start minikube
-   - Install cert-manager and SPIFFE CSI driver
-   - Deploy Cerbos with policies
-   - Build and deploy the demo applications
-   - Set up port forwarding
+The script will:
 
-2. **Access the applications:**
-   - SPIFFE Demo App: http://localhost:8080
-   - Cerbos Authorization Service: http://localhost:3000
+- Start minikube with profile 'venafi'
+- Install cert-manager (v1.18.2) with SPIFFE CSI driver
+- Configure trust domain as `demo.cerbos.io`
+- Deploy Cerbos PDP with authorization policies
+- Build Docker images for demo applications
+- Deploy demo applications to sandbox namespace
+- Approve certificate requests automatically
+- Set up port forwarding
+
+### Access the Applications
+
+Once setup is complete:
+
+- **SPIFFE Demo App**: http://localhost:8080
+- **SPIFFE Demo Backend**: http://localhost:8081
+
+The applications will have SPIFFE identities in the format:
+`spiffe://demo.cerbos.io/ns/sandbox/sa/{service-account}`
 
 ## Cleanup
 
