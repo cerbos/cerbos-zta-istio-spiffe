@@ -15,7 +15,7 @@ spec:
       labels:
         app: spiffe-demo-app
     spec:
-      serviceAccountName: example-app
+      serviceAccountName: spiffe-demo-app
       containers:
         - name: app
           image: spiffe-demo-app:latest
