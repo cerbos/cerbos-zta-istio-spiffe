@@ -265,15 +265,24 @@ PY
 
 # Deploy Cerbos
 deploy_cerbos() {
+    log_info "Building Cerbos adapter image..."
+
+    eval $(minikube -p zero-trust docker-env)
+    (cd cerbos-adapter && docker build -t cerbos-adapter:latest .)
+
+    log_info "Deploying Cerbos adapter..."
+    kubectl apply -f cerbos-adapter/k8s-deployment.yaml
+
+    log_info "Waiting for Cerbos adapter to be ready..."
+    kubectl wait --for=condition=available deployment/cerbos-adapter -n authorization --timeout=300s
+
     log_info "Deploying Cerbos..."
-    
     kubectl apply -f cerbos-deployment.yaml
     
-    # Wait for Cerbos to be ready
     log_info "Waiting for Cerbos to be ready..."
     kubectl wait --for=condition=ready pod -l app=cerbos -n authorization --timeout=300s
     
-    log_success "Cerbos deployment completed"
+    log_success "Cerbos authorization stack deployment completed"
 }
 
 # Build and deploy demo applications
