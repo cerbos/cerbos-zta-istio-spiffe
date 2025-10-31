@@ -50,13 +50,14 @@ flowchart TB
 
 **Topology callouts**
 
-1. User traffic enters through the Istio ingress gateway, which applies VirtualService routing rules.
-2. Mesh config installs the `external-authz-grpc` provider pointing to the Cerbos adapter with `failOpen: false`.
-3. `spiffe-demo-app` and `spiffe-demo-backend` run in the `sandbox` namespace, each with its own SPIFFE-enabled ServiceAccount and AuthorizationPolicy.
-4. NetworkPolicies in `sandbox` enforce least privilege ingress, permitting only Istio and expected in-namespace callers.
-5. The `authorization` namespace hosts the Cerbos adapter and PDP, guarded by default-deny NetworkPolicies with explicit allow rules for Istio and sandbox workloads.
-6. The adapter maps Istio’s SPIFFE identities (URI/By) into Cerbos principals/resources (`service_mesh`, role `ingress`) and forwards decisions back to Envoy.
-7. cert-manager’s SPIFFE CSI driver provisions certificates for every participating pod, ensuring mTLS identity is available to Envoy via the XFCC header.
+1. **Browser → Istio** – All ingress traffic hits the Istio Gateway, which terminates TLS (if configured) and applies VirtualService routing.
+2. **Istio → UI service** – Requests for `spiffe-demo.local` are routed to the frontend workload in the `sandbox` namespace.
+3. **UI → Istio (XHR)** – The UI makes internal calls to `spiffe-backend.local`, sending traffic back through the ingress gateway for consistent policy enforcement.
+4. **Istio → Cerbos adapter** – Every request (UI and backend) triggers Envoy’s external authorization filter, invoking the adapter in the `authorization` namespace.
+5. **Adapter → Cerbos PDP** – The adapter converts SPIFFE identities from the XFCC header into Cerbos principals/resources and asks for a decision.
+6. **Cerbos → Adapter → Istio → Backend** – Allow decisions flow back through the adapter to Envoy, which then proxies traffic to the backend service; denies stop at the gateway.
+7. **cert-manager SPIFFE CSI** – The CSI driver mounts SPIFFE certificates into each pod (UI, backend, adapter, Cerbos) so Envoy can project identities into XFCC.
+8. **Mesh config → Istio** – Cluster-wide mesh configuration registers the `external-authz-grpc` provider (pointing to the adapter) and sets `failOpen: false`.
 
 ---
 
@@ -104,13 +105,24 @@ sequenceDiagram
 
 **Lifecycle callouts**
 
-1. Browser hits the UI host; Istio evaluates a `CUSTOM` AuthorizationPolicy and forwards an ext_authz request.
-2. Adapter receives Envoy metadata (including XFCC) and extracts ingress SPIFFE (principal) and UI SPIFFE (resource).
-3. Cerbos evaluates the `service_mesh` policy for the UI request and returns allow/deny.
-4. On allow, Istio proxies to the UI pod; otherwise it returns 401/403 immediately.
-5. The loaded UI issues an XHR to the backend host, triggering a second ext_authz check.
-6. Adapter remaps identities (principal = ingress, resource = backend), preserving HTTP attributes.
-7. Cerbos enforces backend-specific rules; allow leads to proxying to the backend pod, deny short-circuits at the gateway.
+1. Browser issues the initial GET for the UI host; Istio captures the request and selects the frontend VirtualService while invoking the `CUSTOM` AuthorizationPolicy.
+2. Istio sends an ext_authz `CheckRequest` to the adapter, including the XFCC header with SPIFFE identities and HTTP metadata.
+3. Adapter parses SPIFFE IDs: principal = ingressgateway SPIFFE (from `URI=`), resource = UI SPIFFE (from `By=`), role = `ingress`, resource kind = `service_mesh`.
+4. Adapter calls Cerbos `CheckResources`, passing the mapped principal/resource and HTTP attributes (`method`, `path`).
+5. Cerbos evaluates policies and returns an ALLOW or DENY decision (optionally with outputs).
+6. Adapter responds to Istio with an OK or Denied message, mirroring the Cerbos decision.
+7. **Allowed branch (UI)** – Istio forwards the request to the `spiffe-demo-app` pod because Cerbos allowed the operation.
+8. UI pod responds with HTML/JS, completing the initial page load back to the browser.
+9. **Denied branch (UI)** – If Cerbos denied the UI request, Istio replies directly with 401/403 and the flow stops (no backend call occurs).
+10. After the page loads, the browser issues an XHR to `/api/resources` (backend host) to fetch data.
+11. Istio again calls the adapter with an ext_authz request for the backend path.
+12. Adapter remaps identities for the backend call: principal = ingressgateway SPIFFE, resource = backend SPIFFE, role still `ingress`, kind `service_mesh`.
+13. Adapter sends the second `CheckResources` call to Cerbos with method `GET` and path `/api/resources`.
+14. Cerbos returns a decision for the backend request.
+15. Adapter relays the decision to Istio (Ok or Denied).
+16. **Allowed branch (Backend)** – Istio proxies the call to the `spiffe-demo-backend` pod because access was granted.
+17. Backend responds with JSON payload for the UI.
+18. Istio forwards the JSON response to the browser, completing the data fetch. If step 13 returned DENY, Istio instead short-circuits with 401/403 (shown as the alternative branch at step 15).
 
 ### Identity & Policy Mapping
 
@@ -193,13 +205,12 @@ Cerbos policies reside in the `cerbos-policies` ConfigMap (authorization namespa
 
 ### Scenario Playbook
 
-| Scenario | What to Change | Expected Result | How to Observe |
-|----------|----------------|-----------------|----------------|
-| Lock down backend | Remove `EFFECT_ALLOW` for role `api` | UI XHR to `/api/resources` fails with 403 | Browser network tab, adapter logs show `DENY` |
-| Namespace-aware allow | Require `spiffeID(P.id).path().contains("/ns/sandbox")` and limit to `method == "GET"` | Only sandbox workloads succeed; spoofed namespaces are denied | Modify policy, rerun `curl` with alternate SPIFFE (see adapter logs) |
-| Introduce response metadata | Add `outputs` map with custom header | Envoy injects header (e.g., `x-decision-source: cerbos`) into upstream response | `curl -v`, browser dev tools, Istio access logs |
-| Fail-open experiment | Temporarily set mesh config `failOpen: true` and restart adapter | During adapter outage requests succeed (fail open) | `kubectl scale deploy/cerbos-adapter --replicas=0 -n authorization`, observe responses |
-| SPIFFE trust-domain check | Change policy to require `spiffeMatchTrustDomain("spiffe://demo.cerbos.io")` | Access allowed only when SPIFFE trust domain matches | Edit policy and simulate alternate trust domain via tests or logs |
+| Scenario                    | What to Change                                                                         | Expected Result                                                                 | How to Observe                                                       |
+| --------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Lock down backend           | Remove `EFFECT_ALLOW` for role `api`                                                   | UI XHR to `/api/resources` fails with 403                                       | Browser network tab, adapter logs show `DENY`                        |
+| Namespace-aware allow       | Require `spiffeID(P.id).path().contains("/ns/sandbox")` and limit to `method == "GET"` | Only sandbox workloads succeed; spoofed namespaces are denied                   | Modify policy, rerun `curl` with alternate SPIFFE (see adapter logs) |
+| Introduce response metadata | Add `outputs` map with custom header                                                   | Envoy injects header (e.g., `x-decision-source: cerbos`) into upstream response | `curl -v`, browser dev tools, Istio access logs                      |
+| SPIFFE trust-domain check   | Change policy to require `spiffeMatchTrustDomain("spiffe://demo.cerbos.io")`           | Access allowed only when SPIFFE trust domain matches                            | Edit policy and simulate alternate trust domain via tests or logs    |
 
 ---
 
