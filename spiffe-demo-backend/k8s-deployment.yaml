@@ -30,7 +30,7 @@ spec:
             - name: NODE_ENV
               value: "production"
             - name: CERBOS_HOST
-              value: "cerbos-service:3593"
+              value: "cerbos-service.authorization.svc.cluster.local:3593"
       volumes:
         - name: spiffe-csi
           csi:

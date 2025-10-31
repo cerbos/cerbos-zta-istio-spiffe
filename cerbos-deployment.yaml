@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cerbos
-  namespace: sandbox
+  namespace: authorization
   labels:
     app: cerbos
 spec:
@@ -55,7 +55,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cerbos-service
-  namespace: sandbox
+  namespace: authorization
 spec:
   selector:
     app: cerbos
@@ -74,7 +74,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cerbos-config
-  namespace: sandbox
+  namespace: authorization
 data:
   cerbos-config.yaml: |
     server:
@@ -98,7 +98,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cerbos-policies
-  namespace: sandbox
+  namespace: authorization
 data:
   resource_policy.yaml: |
     ---
@@ -118,3 +118,19 @@ data:
                 of:
                   - expr: spiffeMatchTrustDomain(spiffeTrustDomain("spiffe://demo.cerbos.io")).matchesID(spiffeID(P.id))
                   - expr: spiffeID(P.id).path().contains("/ns/sandbox")
+
+  service_mesh_policy.yaml: |
+    ---
+    apiVersion: api.cerbos.dev/v1
+    resourcePolicy:
+      version: "default"
+      resource: "service_mesh"
+      rules:
+        # Allow all operations for now
+        - actions: ['route']
+          effect: EFFECT_ALLOW
+          roles:
+            - '*'
+          condition:
+            match:
+              expr: spiffeMatchTrustDomain(spiffeTrustDomain("spiffe://demo.cerbos.io")).matchesID(spiffeID(P.id))

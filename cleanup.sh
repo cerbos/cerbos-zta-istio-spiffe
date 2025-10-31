@@ -51,8 +51,10 @@ cleanup_applications() {
     # Delete demo applications
     kubectl delete -f spiffe-demo-app/k8s-deployment.yaml --ignore-not-found=true
     kubectl delete -f cerbos-deployment.yaml --ignore-not-found=true
+    kubectl delete -f cerbos-adapter/k8s-deployment.yaml --ignore-not-found=true
     kubectl delete -f istio-gateway.yaml --ignore-not-found=true
     kubectl delete -f network-policies.yaml --ignore-not-found=true
+    kubectl delete -f spiffe-backend-authz-policy.yaml --ignore-not-found=true
     
     # Delete sample app
     kubectl delete -f https://raw.githubusercontent.com/cert-manager/csi-driver-spiffe/ed646ccf28b1ecdf63f628bf16f1d350a9b850c1/deploy/example/example-app.yaml --ignore-not-found=true
@@ -87,6 +89,7 @@ cleanup_namespaces() {
     log_info "Cleaning up namespaces..."
     
     kubectl delete namespace sandbox --ignore-not-found=true
+    kubectl delete namespace authorization --ignore-not-found=true
     kubectl delete namespace cert-manager --ignore-not-found=true
     
     log_success "Namespaces cleanup completed"

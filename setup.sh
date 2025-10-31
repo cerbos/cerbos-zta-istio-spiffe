@@ -168,6 +168,17 @@ setup_sandbox() {
     log_success "Sandbox namespace created"
 }
 
+setup_authorization_namespace() {
+    log_info "Setting up authorization namespace..."
+
+    kubectl create namespace authorization --dry-run=client -o yaml | kubectl apply -f -
+
+    log_info "Enabling Istio sidecar injection in authorization namespace..."
+    kubectl label namespace authorization istio-injection=enabled --overwrite
+
+    log_success "Authorization namespace created"
+}
+
 apply_network_policies() {
     log_info "Applying network policies..."
     
@@ -185,6 +196,73 @@ configure_istio_gateway() {
     log_success "Istio ingress gateway configured"
 }
 
+configure_external_authorization() {
+    log_info "Configuring external authorization provider..."
+    
+    local cm_tmp updated_tmp
+    cm_tmp=$(mktemp)
+    updated_tmp=$(mktemp)
+
+    local attempts=0
+    until kubectl get configmap istio -n istio-system -o json > "$cm_tmp"; do
+        attempts=$((attempts + 1))
+        if [ $attempts -ge 6 ]; then
+            log_error "Failed to retrieve Istio mesh config after multiple attempts"
+            rm -f "$cm_tmp" "$updated_tmp"
+            exit 1
+        fi
+        log_warning "Istio mesh config not ready yet, retrying..."
+        sleep 5
+    done
+
+    python3 - "$cm_tmp" "$updated_tmp" <<'PY'
+import json
+import sys
+
+_, config_path, output_path = sys.argv
+
+with open(config_path, "r", encoding="utf-8") as fh:
+    cm = json.load(fh)
+
+mesh = cm.get("data", {}).get("mesh", "")
+provider_snippet = """
+extensionProviders:
+- name: external-authz-grpc
+  envoyExtAuthzGrpc:
+    service: cerbos-adapter-service.authorization.svc.cluster.local
+    port: 9090
+    timeout: 3s
+    failOpen: false
+""".lstrip("\n")
+
+if "name: external-authz-grpc" not in mesh:
+    if mesh and not mesh.endswith("\n"):
+        mesh += "\n"
+    mesh += provider_snippet
+else:
+    updated_mesh = mesh.replace(
+        "service: external-authz.sandbox.svc.cluster.local",
+        "service: cerbos-adapter-service.authorization.svc.cluster.local",
+    ).replace(
+        "service: cerbos-adapter-service.backend.svc.cluster.local",
+        "service: cerbos-adapter-service.authorization.svc.cluster.local",
+    ).replace("port: 9000", "port: 9090").replace("failOpen: true", "failOpen: false")
+    mesh = updated_mesh
+
+cm.setdefault("data", {})["mesh"] = mesh
+
+with open(output_path, "w", encoding="utf-8") as fh:
+    json.dump(cm, fh)
+PY
+
+    kubectl apply -f "$updated_tmp"
+    rm -f "$cm_tmp" "$updated_tmp"
+    
+    kubectl apply -f spiffe-backend-authz-policy.yaml
+    
+    log_success "External authorization configuration completed"
+}
+
 # Deploy Cerbos
 deploy_cerbos() {
     log_info "Deploying Cerbos..."
@@ -193,7 +271,7 @@ deploy_cerbos() {
     
     # Wait for Cerbos to be ready
     log_info "Waiting for Cerbos to be ready..."
-    kubectl wait --for=condition=ready pod -l app=cerbos -n sandbox --timeout=300s
+    kubectl wait --for=condition=ready pod -l app=cerbos -n authorization --timeout=300s
     
     log_success "Cerbos deployment completed"
 }
@@ -292,8 +370,10 @@ main() {
     install_cert_manager
     setup_cluster_issuer
     setup_sandbox
+    setup_authorization_namespace
     apply_network_policies
     configure_istio_gateway
+    configure_external_authorization
     deploy_cerbos
     deploy_demo_apps
     approve_certificates
