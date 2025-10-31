@@ -30,7 +30,7 @@ spec:
             - name: NODE_ENV
               value: "production"
             - name: CERBOS_HOST
-              value: "cerbos-service:3593"
+              value: "cerbos-service.authorization.svc.cluster.local:3593"
       volumes:
         - name: spiffe-csi
           csi:
@@ -53,22 +53,19 @@ spec:
       targetPort: 8080
   type: ClusterIP
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
 metadata:
-  name: spiffe-demo-backend-ingress
+  name: spiffe-demo-backend
   namespace: sandbox
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  rules:
-    - host: spiffe-backend.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: spiffe-demo-backend-service
-                port:
-                  number: 80
+  hosts:
+    - spiffe-backend.local
+  gateways:
+    - spiffe-demo-gateway
+  http:
+    - route:
+        - destination:
+            host: spiffe-demo-backend-service.sandbox.svc.cluster.local
+            port:
+              number: 80

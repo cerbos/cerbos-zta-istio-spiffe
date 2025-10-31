@@ -15,7 +15,7 @@ spec:
       labels:
         app: spiffe-demo-app
     spec:
-      serviceAccountName: example-app
+      serviceAccountName: spiffe-demo-app
       containers:
         - name: app
           image: spiffe-demo-app:latest
@@ -51,22 +51,19 @@ spec:
       targetPort: 8080
   type: ClusterIP
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
 metadata:
-  name: spiffe-demo-app-ingress
+  name: spiffe-demo-app
   namespace: sandbox
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  rules:
-    - host: spiffe-demo.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: spiffe-demo-app-service
-                port:
-                  number: 80
+  hosts:
+    - spiffe-demo.local
+  gateways:
+    - spiffe-demo-gateway
+  http:
+    - route:
+        - destination:
+            host: spiffe-demo-app-service.sandbox.svc.cluster.local
+            port:
+              number: 80

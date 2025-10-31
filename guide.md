@@ -3,7 +3,7 @@ Docs https://cert-manager.io/docs/usage/csi-driver-spiffe/
 Setup the infrastructure
 
 ```
-minikube -p venafi start
+minikube -p zero-trust start
 
 
 kubectl create ns cert-manager

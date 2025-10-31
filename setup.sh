@@ -65,15 +65,22 @@ setup_minikube() {
     log_info "Setting up minikube..."
     
     # Check if minikube is already running
-    if minikube -p venafi status | grep -q "Running"; then
-        log_warning "minikube profile 'venafi' is already running"
+    if minikube -p zero-trust status | grep -q "Running"; then
+        log_warning "minikube profile 'zero-trust' is already running"
     else
         log_info "Starting minikube..."
-        minikube -p venafi start
+        minikube -p zero-trust start
     fi
     
-    # Enable ingress addon
-    minikube -p venafi addons enable ingress
+    # Setup Gateway API support
+    log_info "Enabling Gateway API support..."
+    kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null || \
+    { kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.3.0" | kubectl apply -f -; }
+
+    # Enable istio addons
+    log_info "Enabling Istio addons..."
+    minikube -p zero-trust addons enable istio-provisioner
+    minikube -p zero-trust addons enable istio
     
     log_success "Minikube setup completed"
 }
@@ -150,12 +157,110 @@ setup_sandbox() {
     log_info "Setting up sandbox namespace..."
     
     kubectl create namespace sandbox --dry-run=client -o yaml | kubectl apply -f -
+
+    log_info "Enabling Istio sidecar injection in sandbox namespace..."
+    kubectl label namespace sandbox istio-injection=enabled --overwrite
     
     # Apply RBAC for certificate requests
     log_info "Applying RBAC for certificate requests..."
     kubectl apply -f cluster-rbac.yaml
     
     log_success "Sandbox namespace created"
+}
+
+setup_authorization_namespace() {
+    log_info "Setting up authorization namespace..."
+
+    kubectl create namespace authorization --dry-run=client -o yaml | kubectl apply -f -
+
+    log_info "Enabling Istio sidecar injection in authorization namespace..."
+    kubectl label namespace authorization istio-injection=enabled --overwrite
+
+    log_success "Authorization namespace created"
+}
+
+apply_network_policies() {
+    log_info "Applying network policies..."
+    
+    kubectl apply -f network-policies.yaml
+    
+    log_success "Network policies applied"
+}
+
+# Configure Istio gateway
+configure_istio_gateway() {
+    log_info "Configuring Istio ingress gateway..."
+    
+    kubectl apply -f istio-gateway.yaml
+    
+    log_success "Istio ingress gateway configured"
+}
+
+configure_external_authorization() {
+    log_info "Configuring external authorization provider..."
+    
+    local cm_tmp updated_tmp
+    cm_tmp=$(mktemp)
+    updated_tmp=$(mktemp)
+
+    local attempts=0
+    until kubectl get configmap istio -n istio-system -o json > "$cm_tmp"; do
+        attempts=$((attempts + 1))
+        if [ $attempts -ge 6 ]; then
+            log_error "Failed to retrieve Istio mesh config after multiple attempts"
+            rm -f "$cm_tmp" "$updated_tmp"
+            exit 1
+        fi
+        log_warning "Istio mesh config not ready yet, retrying..."
+        sleep 5
+    done
+
+    python3 - "$cm_tmp" "$updated_tmp" <<'PY'
+import json
+import sys
+
+_, config_path, output_path = sys.argv
+
+with open(config_path, "r", encoding="utf-8") as fh:
+    cm = json.load(fh)
+
+mesh = cm.get("data", {}).get("mesh", "")
+provider_snippet = """
+extensionProviders:
+- name: external-authz-grpc
+  envoyExtAuthzGrpc:
+    service: cerbos-adapter-service.authorization.svc.cluster.local
+    port: 9090
+    timeout: 3s
+    failOpen: false
+""".lstrip("\n")
+
+if "name: external-authz-grpc" not in mesh:
+    if mesh and not mesh.endswith("\n"):
+        mesh += "\n"
+    mesh += provider_snippet
+else:
+    updated_mesh = mesh.replace(
+        "service: external-authz.sandbox.svc.cluster.local",
+        "service: cerbos-adapter-service.authorization.svc.cluster.local",
+    ).replace(
+        "service: cerbos-adapter-service.backend.svc.cluster.local",
+        "service: cerbos-adapter-service.authorization.svc.cluster.local",
+    ).replace("port: 9000", "port: 9090").replace("failOpen: true", "failOpen: false")
+    mesh = updated_mesh
+
+cm.setdefault("data", {})["mesh"] = mesh
+
+with open(output_path, "w", encoding="utf-8") as fh:
+    json.dump(cm, fh)
+PY
+
+    kubectl apply -f "$updated_tmp"
+    rm -f "$cm_tmp" "$updated_tmp"
+    
+    kubectl apply -f spiffe-backend-authz-policy.yaml
+    
+    log_success "External authorization configuration completed"
 }
 
 # Deploy Cerbos
@@ -166,7 +271,7 @@ deploy_cerbos() {
     
     # Wait for Cerbos to be ready
     log_info "Waiting for Cerbos to be ready..."
-    kubectl wait --for=condition=ready pod -l app=cerbos -n sandbox --timeout=300s
+    kubectl wait --for=condition=ready pod -l app=cerbos -n authorization --timeout=300s
     
     log_success "Cerbos deployment completed"
 }
@@ -176,7 +281,7 @@ deploy_demo_apps() {
     log_info "Building and deploying demo applications..."
     
     # Set docker environment to use minikube's docker daemon
-    eval $(minikube -p venafi docker-env)
+    eval $(minikube -p zero-trust docker-env)
     
     # Build SPIFFE demo app
     log_info "Building SPIFFE demo app..."
@@ -228,32 +333,22 @@ setup_port_forwarding() {
     
     # Kill any existing port-forward processes
     pkill -f "kubectl.*port-forward" || true
-    
-    # Port forward for SPIFFE demo app
-    kubectl port-forward -n sandbox svc/spiffe-demo-app-service 8080:80 &
-    SPIFFE_PF_PID=$!
-    
-    # Port forward for SPIFFE demo backend
-    kubectl port-forward -n sandbox svc/spiffe-demo-backend-service 8081:80 &
-    BACKEND_PF_PID=$!
+
+    # Port forward for gateway
+    kubectl port-forward -n istio-system svc/istio-ingressgateway 8088:80 &
+    INGRESS_PF_PID=$!
     
     # Save PIDs to a file for cleanup
-    echo "$SPIFFE_PF_PID" > .port-forward-pids
-    echo "$BACKEND_PF_PID" >> .port-forward-pids
+    echo "$INGRESS_PF_PID" > .port-forward-pids
     
     log_success "Port forwarding setup completed"
-    log_info "SPIFFE Demo App: http://localhost:8080"
-    log_info "SPIFFE Demo Backend: http://localhost:8081"
+    log_info "Port forwarding for Istio ingress gateway is running (PID: $INGRESS_PF_PID)"
 }
 
 # Display final information
 display_final_info() {
     echo ""
     log_success "🎉 Setup completed successfully!"
-    echo ""
-    echo "Access your applications:"
-    echo "  🔐 SPIFFE Demo App: http://localhost:8080"
-    echo "  🔧 SPIFFE Demo Backend: http://localhost:8081"
     echo ""
     echo "Useful commands:"
     echo "  kubectl get pods -n sandbox"
@@ -275,6 +370,10 @@ main() {
     install_cert_manager
     setup_cluster_issuer
     setup_sandbox
+    setup_authorization_namespace
+    apply_network_policies
+    configure_istio_gateway
+    configure_external_authorization
     deploy_cerbos
     deploy_demo_apps
     approve_certificates

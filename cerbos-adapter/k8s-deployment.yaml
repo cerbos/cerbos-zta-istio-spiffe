@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authorization
+  labels:
+    istio-injection: enabled
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cerbos-adapter
+  namespace: authorization
+  labels:
+    app: cerbos-adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cerbos-adapter
+  template:
+    metadata:
+      labels:
+        app: cerbos-adapter
+    spec:
+      containers:
+        - name: cerbos-adapter
+          image: cerbos-adapter:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9090
+              name: grpc
+          env:
+            - name: PORT
+              value: "9090"
+            - name: CERBOS_GRPC_ADDR
+              value: "cerbos-service.authorization.svc.cluster.local:3593"
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cerbos-adapter-service
+  namespace: authorization
+spec:
+  selector:
+    app: cerbos-adapter
+  ports:
+    - name: grpc
+      protocol: TCP
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP

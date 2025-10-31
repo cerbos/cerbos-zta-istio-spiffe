@@ -1,0 +1,29 @@
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: spiffe-backend-external-authz
+  namespace: sandbox
+spec:
+  selector:
+    matchLabels:
+      app: spiffe-demo-backend
+  action: CUSTOM
+  provider:
+    name: external-authz-grpc
+  rules:
+    - {}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: spiffe-app-external-authz
+  namespace: sandbox
+spec:
+  selector:
+    matchLabels:
+      app: spiffe-demo-app
+  action: CUSTOM
+  provider:
+    name: external-authz-grpc
+  rules:
+    - {}

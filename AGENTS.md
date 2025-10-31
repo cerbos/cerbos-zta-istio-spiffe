@@ -11,11 +11,13 @@ This is a demonstration project showcasing SPIFFE identity management integrated
 The system runs on minikube and consists of:
 
 1. **SPIFFE Identity Infrastructure**
+
    - cert-manager with SPIFFE CSI driver (trust domain: demo.cerbos.io)
    - Automatic certificate issuance and mounting via CSI
    - Runtime certificate approval workflow
 
 2. **Demo Applications** (Node.js/Express)
+
    - `spiffe-demo-app/`: Frontend app displaying SPIFFE identity and certificate info
    - `spiffe-demo-backend/`: Backend API service with Cerbos authorization
 
@@ -27,6 +29,7 @@ The system runs on minikube and consists of:
 ## Common Development Commands
 
 ### Setup and Deployment
+
 ```bash
 # Full automated setup (starts minikube, installs everything)
 ./setup.sh
@@ -39,6 +42,7 @@ The system runs on minikube and consists of:
 ```
 
 ### Node.js Applications
+
 ```bash
 # Install dependencies for demo apps
 cd spiffe-demo-app && npm install
@@ -49,6 +53,7 @@ npm start
 ```
 
 ### Kubernetes Operations
+
 ```bash
 # View pods in sandbox namespace
 kubectl get pods -n sandbox
@@ -66,8 +71,9 @@ cmctl approve -n cert-manager $(kubectl get cr -n cert-manager -ojsonpath='{.ite
 ```
 
 ### Docker Build (uses minikube's docker daemon)
+
 ```bash
-eval $(minikube -p venafi docker-env)
+eval $(minikube -p zero-trust docker-env)
 docker build -t spiffe-demo-app:latest ./spiffe-demo-app
 docker build -t spiffe-demo-backend:latest ./spiffe-demo-backend
 ```
@@ -86,6 +92,7 @@ docker build -t spiffe-demo-backend:latest ./spiffe-demo-backend
 Identities follow the pattern: `spiffe://demo.cerbos.io/ns/{namespace}/sa/{serviceaccount}`
 
 The CSI driver mounts certificates at `/var/run/secrets/spiffe.io/` with:
+
 - `tls.crt`: The certificate
 - `tls.key`: The private key
 - `ca.crt`: The CA certificate
@@ -93,12 +100,14 @@ The CSI driver mounts certificates at `/var/run/secrets/spiffe.io/` with:
 ## Cerbos Integration
 
 Applications use the `@cerbos/grpc` package to communicate with Cerbos. The authorization flow:
+
 1. Extract SPIFFE ID from mounted certificate
 2. Pass SPIFFE ID as principal to Cerbos
 3. Cerbos evaluates policies based on SPIFFE trust domain and path
 4. Authorization decision returned to application
 
 Policy evaluation uses SPIFFE-specific functions:
+
 - `spiffeID()`: Parse SPIFFE ID from string
 - `spiffeTrustDomain()`: Create trust domain matcher
 - `spiffeMatchTrustDomain()`: Match against trust domain
@@ -106,12 +115,14 @@ Policy evaluation uses SPIFFE-specific functions:
 ## Port Forwarding
 
 The setup script automatically configures:
+
 - Port 8080 → spiffe-demo-app-service
 - Port 8081 → spiffe-demo-backend-service
 
 ## Testing Authorization
 
 The Cerbos policy allows actions for principals with:
+
 - SPIFFE ID in the `demo.cerbos.io` trust domain
 - Path containing `/ns/sandbox`
 - Role of `api`
