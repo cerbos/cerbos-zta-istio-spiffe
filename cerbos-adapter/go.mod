@@ -5,7 +5,6 @@ go 1.24.4
 require (
 	github.com/cerbos/cerbos-sdk-go v0.3.11
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4
-	github.com/golang-jwt/jwt/v5 v5.2.1
 	google.golang.org/grpc v1.75.1
 	google.golang.org/protobuf v1.36.9
 )
