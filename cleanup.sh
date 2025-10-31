@@ -50,8 +50,9 @@ cleanup_applications() {
     
     # Delete demo applications
     kubectl delete -f spiffe-demo-app/k8s-deployment.yaml --ignore-not-found=true
-    kubectl delete -f cerbos-service/k8s-deployment.yaml --ignore-not-found=true
     kubectl delete -f cerbos-deployment.yaml --ignore-not-found=true
+    kubectl delete -f istio-gateway.yaml --ignore-not-found=true
+    kubectl delete -f network-policies.yaml --ignore-not-found=true
     
     # Delete sample app
     kubectl delete -f https://raw.githubusercontent.com/cert-manager/csi-driver-spiffe/ed646ccf28b1ecdf63f628bf16f1d350a9b850c1/deploy/example/example-app.yaml --ignore-not-found=true
@@ -95,11 +96,11 @@ cleanup_namespaces() {
 cleanup_minikube() {
     if [ "$1" = "--delete-minikube" ]; then
         log_info "Deleting minikube cluster..."
-        minikube -p venafi delete
+        minikube -p zero-trust delete
         log_success "Minikube cluster deleted"
     else
         log_info "Stopping minikube cluster..."
-        minikube -p venafi stop
+        minikube -p zero-trust stop
         log_success "Minikube cluster stopped"
         log_warning "To completely delete the cluster, run: $0 --delete-minikube"
     fi
@@ -115,7 +116,7 @@ display_cleanup_info() {
         echo "The minikube cluster has been completely deleted."
     else
         echo "The minikube cluster has been stopped but not deleted."
-        echo "To start it again, run: minikube -p venafi start"
+        echo "To start it again, run: minikube -p zero-trust start"
         echo "To completely delete it, run: $0 --delete-minikube"
     fi
     echo ""

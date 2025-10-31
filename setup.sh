@@ -65,15 +65,22 @@ setup_minikube() {
     log_info "Setting up minikube..."
     
     # Check if minikube is already running
-    if minikube -p venafi status | grep -q "Running"; then
-        log_warning "minikube profile 'venafi' is already running"
+    if minikube -p zero-trust status | grep -q "Running"; then
+        log_warning "minikube profile 'zero-trust' is already running"
     else
         log_info "Starting minikube..."
-        minikube -p venafi start
+        minikube -p zero-trust start
     fi
     
-    # Enable ingress addon
-    minikube -p venafi addons enable ingress
+    # Setup Gateway API support
+    log_info "Enabling Gateway API support..."
+    kubectl get crd gateways.gateway.networking.k8s.io &> /dev/null || \
+    { kubectl kustomize "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.3.0" | kubectl apply -f -; }
+
+    # Enable istio addons
+    log_info "Enabling Istio addons..."
+    minikube -p zero-trust addons enable istio-provisioner
+    minikube -p zero-trust addons enable istio
     
     log_success "Minikube setup completed"
 }
@@ -150,12 +157,32 @@ setup_sandbox() {
     log_info "Setting up sandbox namespace..."
     
     kubectl create namespace sandbox --dry-run=client -o yaml | kubectl apply -f -
+
+    log_info "Enabling Istio sidecar injection in sandbox namespace..."
+    kubectl label namespace sandbox istio-injection=enabled --overwrite
     
     # Apply RBAC for certificate requests
     log_info "Applying RBAC for certificate requests..."
     kubectl apply -f cluster-rbac.yaml
     
     log_success "Sandbox namespace created"
+}
+
+apply_network_policies() {
+    log_info "Applying network policies..."
+    
+    kubectl apply -f network-policies.yaml
+    
+    log_success "Network policies applied"
+}
+
+# Configure Istio gateway
+configure_istio_gateway() {
+    log_info "Configuring Istio ingress gateway..."
+    
+    kubectl apply -f istio-gateway.yaml
+    
+    log_success "Istio ingress gateway configured"
 }
 
 # Deploy Cerbos
@@ -176,7 +203,7 @@ deploy_demo_apps() {
     log_info "Building and deploying demo applications..."
     
     # Set docker environment to use minikube's docker daemon
-    eval $(minikube -p venafi docker-env)
+    eval $(minikube -p zero-trust docker-env)
     
     # Build SPIFFE demo app
     log_info "Building SPIFFE demo app..."
@@ -228,32 +255,22 @@ setup_port_forwarding() {
     
     # Kill any existing port-forward processes
     pkill -f "kubectl.*port-forward" || true
-    
-    # Port forward for SPIFFE demo app
-    kubectl port-forward -n sandbox svc/spiffe-demo-app-service 8080:80 &
-    SPIFFE_PF_PID=$!
-    
-    # Port forward for SPIFFE demo backend
-    kubectl port-forward -n sandbox svc/spiffe-demo-backend-service 8081:80 &
-    BACKEND_PF_PID=$!
+
+    # Port forward for gateway
+    kubectl port-forward -n istio-system svc/istio-ingressgateway 8088:80 &
+    INGRESS_PF_PID=$!
     
     # Save PIDs to a file for cleanup
-    echo "$SPIFFE_PF_PID" > .port-forward-pids
-    echo "$BACKEND_PF_PID" >> .port-forward-pids
+    echo "$INGRESS_PF_PID" > .port-forward-pids
     
     log_success "Port forwarding setup completed"
-    log_info "SPIFFE Demo App: http://localhost:8080"
-    log_info "SPIFFE Demo Backend: http://localhost:8081"
+    log_info "Port forwarding for Istio ingress gateway is running (PID: $INGRESS_PF_PID)"
 }
 
 # Display final information
 display_final_info() {
     echo ""
     log_success "🎉 Setup completed successfully!"
-    echo ""
-    echo "Access your applications:"
-    echo "  🔐 SPIFFE Demo App: http://localhost:8080"
-    echo "  🔧 SPIFFE Demo Backend: http://localhost:8081"
     echo ""
     echo "Useful commands:"
     echo "  kubectl get pods -n sandbox"
@@ -275,6 +292,8 @@ main() {
     install_cert_manager
     setup_cluster_issuer
     setup_sandbox
+    apply_network_policies
+    configure_istio_gateway
     deploy_cerbos
     deploy_demo_apps
     approve_certificates
